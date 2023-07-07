@@ -1,0 +1,12 @@
+streamlit
+streamlit_option_menu
+numpy
+pandas
+geopandas
+
+plotly
+plotly_express
+matplotlib
+matplotlib_patches
+folium
+streamlit_folium
