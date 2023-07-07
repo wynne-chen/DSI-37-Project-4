@@ -7,6 +7,6 @@ geopandas
 plotly
 plotly_express
 matplotlib
-matplotlib_patches
+
 folium
 streamlit_folium
