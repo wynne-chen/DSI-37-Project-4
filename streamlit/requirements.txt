@@ -3,6 +3,7 @@ streamlit_option_menu
 numpy
 pandas
 geopandas
+sklearn
 
 plotly
 plotly_express
