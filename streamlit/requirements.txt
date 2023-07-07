@@ -4,6 +4,7 @@ numpy
 pandas
 geopandas
 scikit-learn
+imbalanced-learn
 
 plotly
 plotly_express
