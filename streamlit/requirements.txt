@@ -3,8 +3,10 @@ streamlit_option_menu
 numpy
 pandas
 geopandas
+
 scikit-learn==1.2.2
 imbalanced-learn
+xgboost
 
 plotly
 plotly_express
