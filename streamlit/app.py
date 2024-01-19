@@ -7,9 +7,13 @@ import pickle
 import pandas as pd
 import datetime as dt
 from datetime import datetime
+import pytz
 
 import json
+import requests
 import geopandas as gpd
+
+from urllib.request import urlopen
 
 import plotly.express as px
 import matplotlib.pyplot as plt
@@ -253,7 +257,7 @@ if selected == 'WNV in Chicago':
     # Now for the actual animated map
     
     # Set the Mapbox access token
-    px.set_mapbox_access_token('pk.eyJ1IjoiZ2l0aHViYmVyc3QiLCJhIjoiY2xqb3RtcjlwMWp4aDNscWNjdHZuNmU1ayJ9.BizJFoOXaa2H5jsYDkFeSg')
+    px.set_mapbox_access_token(mapbox_token)
     
     
     # Create a scatter mapbox
@@ -485,36 +489,276 @@ if selected == 'Risk In Your Area':
         df['WnvProbability'] = x
         return df
     
+    # disclaimer for non-american audiences; however given the subject matter
+    # it is assumed almost everyone using this would be american/based there anyway
+    st.markdown('NB: American DateTime format and units have been used.')
+    st.markdown('Source: All weather information from weather.gov and sunrisesunset.io')
+
+
+    # Get the current time in Chicago's timezone
+    chicago_timezone = pytz.timezone('America/Chicago')
+    current_time = datetime.now(chicago_timezone)
+
+    # Format the date as a string with the desired format
+    formatted_date = current_time.strftime("%m-%d-%Y")
+
+    # Format the time as a string with the desired format
+    formatted_time = current_time.strftime("%H:%M:%S")
+
+    # Style the date display using HTML/CSS
+    date_style = f"""
+        <div style="font-size: 50px; font-family: Helvetica, sans-serif; color: #FF7F0E;">
+            {formatted_date}
+        </div>
+    """
+
+    # ditto with the time
+    time_style = f"""
+        <div style="font-size: 50px; font-family: Helvetica, sans-serif; color: #FF7F0E;">
+            {formatted_time}
+        </div>
+    """
+
+    date_col, space_col, time_col = st.columns(3)
+
+    # display the formatted time and date
+    with date_col:
+        st.subheader('Current Date')
+        st.markdown(date_style, unsafe_allow_html=True)
+
+    with time_col:
+        st.subheader('Current Time')
+        st.markdown(time_style, unsafe_allow_html=True)
+
+    st.markdown('')
+    st.markdown('')
+
+    col1, col2, col3 = st.columns(3)
+
+    # retrieve weather
+    # Request url
+    forecast_url = 'https://api.weather.gov/points/41.8781,-87.6298'
+    req = requests.get(forecast_url)
+
+    # the weather.gov api is weird in that you have to call twice
+    # retrieve forecast data
+    call1_url = req.json()['properties']['forecast']
+
+    # retrieve weather data for today
+    forecast_json = requests.get(call1_url).json()
+
+    # retrieve some values
+    temp_now = forecast_json['properties']['periods'][0]['temperature']
+    precip_prob_now = (forecast_json['properties']['periods'][0]['probabilityOfPrecipitation']['value'])
+    windspeed_now = forecast_json['properties']['periods'][0]['windSpeed']
+
+    # repeat the same display formatting as previously
+
+    temp_style = f"""
+        <div style="font-size: 36px; font-family: Helvetica, sans-serif; color: #FF7F0E;">
+            {temp_now} °F
+        </div>
+    """
+
+    precip_style = f"""
+        <div style="font-size: 36px; font-family: Helvetica, sans-serif; color: #FF7F0E;">
+            {precip_prob_now} %
+        </div>
+    """
+
+    wind_style = f"""
+        <div style="font-size: 36px; font-family: Helvetica, sans-serif; color: #FF7F0E;">
+            {windspeed_now}
+        </div>
+    """
+
+
+    with col1:
+        st.subheader('Temperature')
+        st.markdown(temp_style, unsafe_allow_html=True)
+    with col2:
+        st.subheader('Probability of Precipitation')
+        st.markdown(precip_style, unsafe_allow_html=True)
+    with col3:
+        st.subheader('Wind Speed')
+        st.markdown(wind_style, unsafe_allow_html=True)
+
+
+    st.subheader('Forecast')
+    st.write(forecast_json['properties']['periods'][0]['detailedForecast'])
+
+    # now that we've done some decorative stuff, time for modelling
+
+    # retrieve sunrise and sunset times today
+    sunrise_url = 'https://api.sunrisesunset.io/json?lat=41.8781&lng=-87.6298'
+    sunrise_req = requests.get(sunrise_url)
+    sunrise_json = sunrise_req.json()
+
+    # get sunrise, sunset, and day length in dt format
+    date = sunrise_json['results']['date']
+    sunrise_str = date + ' ' + sunrise_json['results']['sunrise']
+    sunset_str = date + ' ' + sunrise_json['results']['sunset']
+    sunrise_dt = datetime.strptime(sunrise_str, '%Y-%m-%d %I:%M:%S %p')
+    sunset_dt = datetime.strptime(sunset_str, '%Y-%m-%d %I:%M:%S %p')
+
+    daylength = sunrise_json['results']['day_length']
+    daylength_dt = datetime.strptime(daylength, '%H:%M:%S')
+    daylength_dt_seconds = daylength_dt.second + daylength_dt.minute*60 + daylength_dt.hour*3600
+
+    # convert sunset and sunrise to pure numbers
+    sunrise = sunrise_dt.hour * 100 + sunrise_dt.minute
+    sunset = sunset_dt.hour * 100 + sunset_dt.minute
+
+    # convert day length to decimal hours + rename for df
+    timediff = 24 - daylength_dt_seconds/ 3600
+
+    # time for the frustrating rolling values
+
+    # first some time definitions
+
+    one_week_ago = dt.timedelta(days = 7)
+    three_weeks_ago = dt.timedelta(days = 21)
+    four_weeks_ago = dt.timedelta(days = 28)
+
+    today = datetime.now()
+    roll_7_date = today - one_week_ago
+    roll_21_date = today - three_weeks_ago
+    roll_28_date = today - four_weeks_ago
+
+    # NOAA access token
+    token = NOAA_token
+    # # Midway airport weather station id
+    # station_id = 'GHCND:USW00014819'
+    # O'Hara airport weather station id
+    station_id = 'GHCND:USW00094846'
+    # NOAA api base request
+    NOAA_url = 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data?'
+    # data set 
+    datasetid = 'GHCND'
+    # data to pull
+    datatype_tavg = 'TAVG'
+    datatype_precip = 'PRCP'
+    datatype_tmin = 'TMIN'
+
+    # end date will always be today
+    enddate = datetime.strftime(today, '%Y-%m-%d')
+    # start dates for the three lengths we need
+    startdate = enddate
+    startdate_7 = datetime.strftime(roll_7_date, '%Y-%m-%d')
+    startdate_21 = datetime.strftime(roll_21_date, '%Y-%m-%d')
+    startdate_28 = datetime.strftime(roll_28_date, '%Y-%m-%d')
+
+
+    # different urls to call
+    url_tavg_roll28 = NOAA_url + 'datasetid=' + datasetid + '&' + 'datatypeid=' + datatype_tavg + '&' + 'limit=1000' + '&' + 'stationid=' + station_id + '&' + 'startdate=' + startdate_28 + '&' + 'enddate=' + enddate
+    url_tmin_roll7 = NOAA_url + 'datasetid=' + datasetid + '&' + 'datatypeid=' + datatype_tmin + '&' + 'limit=1000' + '&' + 'stationid=' + station_id + '&' + 'startdate=' + startdate_7 + '&' + 'enddate=' + enddate
+    url_tmin_roll28 = NOAA_url + 'datasetid=' + datasetid + '&' + 'datatypeid=' + datatype_tmin + '&' + 'limit=1000' + '&' + 'stationid=' + station_id + '&' + 'startdate=' + startdate_28 + '&' + 'enddate=' + enddate
+    url_precip_roll21 = NOAA_url + 'datasetid=' + datasetid + '&' + 'datatypeid=' + datatype_precip + '&' + 'limit=1000' + '&' + 'stationid=' + station_id + '&' + 'startdate=' + startdate_21 + '&' + 'enddate=' + enddate
+    url_precip_roll28 = NOAA_url + 'datasetid=' + datasetid + '&' + 'datatypeid=' + datatype_precip + '&' + 'limit=1000' + '&' + 'stationid=' + station_id + '&' + 'startdate=' + startdate_28 + '&' + 'enddate=' + enddate
+
+    # call 'em'
+    req1 = requests.get(url_tavg_roll28, headers = {'token':token})
+    req2 = requests.get(url_tmin_roll7, headers = {'token':token})
+    req3 = requests.get(url_tmin_roll28, headers = {'token':token})
+    req4 = requests.get(url_precip_roll21, headers = {'token':token})
+    req5 = requests.get(url_precip_roll28, headers = {'token':token})
+
+    # jsons
+    tavg_json = req1.json()
+    tmin7_json = req2.json()
+    tmin28_json = req3.json()
+    precip21_json = req4.json()
+    precip28_json = req5.json()
+
+    # tavg roll mean 28
+    tavg_roll_28 = []
+    for tavg in tavg_json['results']:
+        tavg_roll_28.append(tavg['value'])
+    roll_mean_28_Tavg = sum(tavg_roll_28)/len(tavg_roll_28)
+
+    # tmin roll mean 7
+    tmin_roll_7 = []
+    for tmin in tmin7_json['results']:
+        tmin_roll_7.append(tmin['value'])
+    roll_mean_7_Tmin = sum(tmin_roll_7)/len(tmin_roll_7)
+
+    # tmin roll mean 28
+    tmin_roll_28 = []
+    for tmin in tmin28_json['results']:
+        tmin_roll_28.append(tmin['value'])
+    roll_mean_28_Tmin = sum(tmin_roll_28)/len(tmin_roll_28)
+
+    # precip roll sum 21
+    precip_roll_21 = []
+    for precip in precip21_json['results']:
+        precip_roll_21.append(precip['value'])
+    roll_sum_21_PrecipTotal = sum(precip_roll_21)
+
+    # precip roll sum 28
+    precip_roll_28 = []
+    for precip in precip28_json['results']:
+        precip_roll_28.append(precip['value'])
+    roll_sum_28_PrecipTotal = sum(precip_roll_28)
+
+    # now for the departure from daily mean.. this is maybe unnecessarily irritating lol
+    # padded numbers are necessary!!!
+    month = today.strftime('%m')
+    day = today.strftime('%d')
+    monthday = '-' + month + '-' + day
+
+    tavg_dict = {}
+
+    # check if there's even a record for today... if not, there's no point running the rest of this
+    tavg_today_url = NOAA_url + 'datasetid=' + datasetid + '&datatypeid=' + datatype_tavg + '&limit=1000&stationid=' + station_id + '&startdate=' + str(today.year) + monthday + '&enddate=' + str(today.year) + monthday
+    tavg_today_req = requests.get(tavg_today_url, headers={'token': token})
+    tavg_today_json = tavg_today_req.json()
+
+    if len(tavg_today_json) == 0:
+        depart = 0
+
+    else:
+        tavg_today = tavg_today_json['results'][0]['value']
+        
+        # for each year from 1991-2020 because that's what the US is using for 30 year average right now
+        for year in range(1991, 2021):
+            year = str(year)
+
+            # make the api call
+            url = NOAA_url + 'datasetid=' + datasetid + '&datatypeid=' + datatype_tavg + '&limit=1000&stationid=' + station_id + '&startdate=' + year + monthday + '&enddate=' + year + monthday
+            r = requests.get(url, headers={'token': token})
+            if r.status_code != 200:
+                break
+            # load the api response as a json
+            d = r.json()
+
+            if len(d) == 0:
+                continue
+
+            # get all items in the response which are average temperature readings
+            avg_temp = d['results'][0]['value']
+            # get the date field from all average temperature readings
+            tavg_dict[f'{year}'] = avg_temp
+        
+        today_30yr_tavg = sum(tavg_dict.values())/len(tavg_dict.values())
+        depart = tavg_today - today_30yr_tavg
+
+
+    ###---this is where we need info from people--###
+
     st.subheader('Fill in the following to see the risk of WNV in this time period.')
     species = st.selectbox('Species',['Culex Pipiens/Restuans', 'Culex Restuans', 'Culex Pipiens'], index=0)
     species = species_map[species]
-
-    depart = st.slider('Departure from normal temperature', min_value=-20, max_value=20, step=1)
-
-    sunrise = st.time_input('Sunrise')
-    sunset = st.time_input('Sunset')
-    timediff = dt.datetime.combine(dt.datetime.today(), sunset) - dt.datetime.combine(dt.datetime.today(), sunrise)
-    timediff = 24 - timediff.seconds / 3600
-
-    sunrise = sunrise.hour * 100 + sunrise.minute
-    sunset = sunset.hour * 100 + sunset.minute
+    
 
     codesum = st.multiselect('CodeSum', ['Normal', 'BR', 'HZ', 'RA', 'TS', 'VCTS'])
-    codesum = 0.042585423329405826 # Codesum score for normal
+    codesum = 0.042585423329405826 # Codesum score for normal  
 
-    roll_sum_21_PrecipTotal = st.slider('Rolling Sum of Precipitation (inches) (21 days)', min_value=00, max_value=25, step=1)
-    roll_sum_28_PrecipTotal = st.slider('Rolling Sum of Precipitation (inches) (28 days)', min_value=00, max_value=25, step=1)
-    roll_mean_7_Tmin = st.slider('Minimum Temperature (°F) (7 days rolling mean)', min_value=40, max_value=90, step=1)
-    roll_mean_28_Tmin = st.slider('Minimum Temperature (°F) (28 days rolling mean)', min_value=40, max_value=90, step=1)
-    roll_mean_28_Tavg = st.slider('Average Temperature (°F) (28 days rolling mean)', min_value=40, max_value=90, step=1)
-    
-    date = st.date_input('Date')
-    month = date.month
-    year = date.year
 
     num_trap = st.number_input('Average number of times checked for each trap a day', min_value=0, step=1)
     roll_sum_14_num_trap = num_trap * 14
     speciesXroll_sum_28_num_trap =  species * (num_trap * 28)
+
+    year = current_time.year
 
 
     features_to_fill = ['Species', 'Depart', 'Sunrise', 'Sunset', 'CodeSum',
