@@ -257,7 +257,7 @@ if selected == 'WNV in Chicago':
     # Now for the actual animated map
     
     # Set the Mapbox access token
-    px.set_mapbox_access_token(mapbox_token)
+    px.set_mapbox_access_token(st.secrets['mapbox_token'])
     
     
     # Create a scatter mapbox
@@ -626,7 +626,7 @@ if selected == 'Risk In Your Area':
     roll_28_date = today - four_weeks_ago
 
     # NOAA access token
-    token = NOAA_token
+    token = st.secrets['NOAA_token']
     # # Midway airport weather station id
     # station_id = 'GHCND:USW00014819'
     # O'Hara airport weather station id
